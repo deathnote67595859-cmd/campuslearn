@@ -1,0 +1,164 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User roles for student, instructor, and administrator permissions
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+// Types of educational resources supported
+enum ResourceType {
+  PDF
+  DOCUMENT
+  VIDEO
+  NOTE
+  OTHER
+}
+
+// -----------------------------------------------------------------------------
+// USER & NEXTAUTH v4 MODELS
+// Compatible with @next-auth/prisma-adapter and CredentialsProvider
+// -----------------------------------------------------------------------------
+
+model User {
+  id             String    @id @default(cuid())
+  name           String?
+  email          String?   @unique
+  emailVerified  DateTime?
+  image          String?   // User avatar image URL
+  hashedPassword String?   // Securely hashed password for Credentials login
+  role           Role      @default(STUDENT)
+
+  // Student Profile fields (matches existing UserProfile interface)
+  username       String?   @unique
+  university     String?   @default("Campus College")
+  major          String?
+  graduationYear String?
+  bio            String?   @db.Text
+  isVerified     Boolean   @default(false)
+  githubUrl      String?
+  linkedinUrl    String?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // NextAuth relations
+  accounts       Account[]
+  sessions       Session[]
+
+  // Educational Resources & Bookmarks relations
+  resources      Resource[]
+  bookmarks      Bookmark[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// -----------------------------------------------------------------------------
+// EDUCATIONAL RESOURCES FOUNDATION MODELS
+// Subjects, Resources, and Student Bookmarks
+// -----------------------------------------------------------------------------
+
+model Subject {
+  id          String   @id @default(cuid())
+  name        String   @unique // e.g. "C++", "Mathematics", "Physics"
+  code        String?  @unique // e.g. "CS 106L", "MATH 51"
+  description String?  @db.Text
+  color       String?  // UI accent color (e.g. "amber", "indigo")
+  iconName    String?  // Lucide icon name for UI rendering
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Resources belonging to this subject
+  resources   Resource[]
+}
+
+model Resource {
+  id          String       @id @default(cuid())
+  title       String
+  description String?      @db.Text
+  type        ResourceType @default(NOTE)
+  fileUrl     String?      @db.Text // URL for uploaded PDFs, docs, or handwritten note images
+  videoUrl    String?      @db.Text // External video URL (e.g. YouTube educational video)
+  topic       String?               // Optional specific lecture topic (e.g. "Pointers & Memory")
+  courseCode  String?               // Course code snapshot (e.g. "CS 106L")
+  isPublic    Boolean      @default(true)
+  viewCount   Int          @default(0)
+
+  // Subject relation
+  subjectId   String
+  subject     Subject      @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  // Uploader relation (User who uploaded or curated the resource)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Bookmarks relation
+  bookmarks   Bookmark[]
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([subjectId])
+  @@index([userId])
+  @@index([type])
+}
+
+model Bookmark {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime @default(now())
+
+  // Prevent duplicate bookmarks by the same user for the same resource
+  @@unique([userId, resourceId])
+  @@index([userId])
+  @@index([resourceId])
+}
